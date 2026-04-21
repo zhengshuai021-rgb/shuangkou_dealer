@@ -14,9 +14,9 @@ from typing import List, Dict, Optional, Tuple
 
 # 牌面值（2 副牌：每个点数 8 张）
 CARD_RANKS = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2']
-# 大小王
-JOKERS_BIG = ['👑'] * 8  # 8 张大王（明牌）
-JOKERS_SMALL = ['🃏'] * 2  # 2 张小王
+# 大小王（八王：4 大王 +4 小王 =8 张，都是万能牌/癞子）
+JOKERS_BIG = ['👑'] * 4  # 4 张大王
+JOKERS_SMALL = ['🃏'] * 4  # 4 张小王
 
 # 牌面值映射（用于比较大小）
 RANK_VALUE = {rank: i for i, rank in enumerate(CARD_RANKS)}
@@ -130,7 +130,7 @@ class ShuangkouDealer:
         self.deck: List[Card] = []
         
     def create_deck(self) -> List[Card]:
-        """创建牌堆：2 副牌 + 8 大王 + 2 小王 = 112 张"""
+        """创建牌堆：2 副牌 (104 张) + 4 大王 + 4 小王 = 112 张"""
         deck = []
         
         # 2 副普通牌（每副 52 张，共 104 张）
@@ -140,12 +140,12 @@ class ShuangkouDealer:
                 for rank in CARD_RANKS:
                     deck.append(Card(rank=rank, suit=suit))
         
-        # 8 张大王
-        for _ in range(8):
+        # 4 张大王（万能牌/癞子）
+        for _ in range(4):
             deck.append(Card(rank='👑', suit=''))
         
-        # 2 张小王
-        for _ in range(2):
+        # 4 张小王（万能牌/癞子）
+        for _ in range(4):
             deck.append(Card(rank='🃏', suit=''))
         
         return deck
@@ -163,8 +163,11 @@ class ShuangkouDealer:
     
     def deal_bombs_first(self, min_bombs_per_player: int = 2):
         """
-        优先发炸弹策略
-        核心思路：先确保每人有指定数量的炸弹，再发其他牌
+        优先发炸弹策略（八王千变版本）
+        核心思路：
+        1. 先确保每人有指定数量的普通炸弹
+        2. 八王（8 张万能牌）均匀分给每人 2 张
+        3. 再发其他牌
         """
         # 1. 创建牌堆并按点数分组
         self.deck = self.create_deck()
@@ -174,17 +177,22 @@ class ShuangkouDealer:
         for card in self.deck:
             rank_groups[card.rank].append(card)
         
-        # 3. 找出所有可能的炸弹（4 张及以上的点数）
+        # 3. 分离八王和普通炸弹
+        joker_cards = []
         bomb_candidates = []
+        
         for rank, cards in rank_groups.items():
-            if len(cards) >= 4:
+            if rank in ['👑', '🃏']:
+                joker_cards.extend(cards)
+            elif len(cards) >= 4:
                 bomb_candidates.append((rank, cards))
         
         # 按牌面值排序（从小到大）
         bomb_candidates.sort(key=lambda x: RANK_VALUE.get(x[0], 0))
         
-        print(f"📊 可分配炸弹点数：{len(bomb_candidates)} 种")
-        print(f"   包括：{[(r + '(' + str(len(c)) + '张)') for r, c in bomb_candidates]}")
+        print(f"📊 可分配炸弹点数：{len(bomb_candidates)} 种 + 八王（8 张万能牌）")
+        print(f"   普通炸弹：{[(r + '(' + str(len(c)) + '张)') for r, c in bomb_candidates]}")
+        print(f"   八王（癞子）: 👑×4 + 🃏×4 = 8 张（可当任意牌）")
         
         # 4. 给每个玩家分配炸弹
         bombs_assigned = 0
@@ -232,6 +240,23 @@ class ShuangkouDealer:
         
         print(f"✅ 炸弹分配完成：共分配 {bombs_assigned} 个炸弹")
         print(f"   每人炸弹数：{player_bomb_count}")
+        
+        # 5. 分配八王（万能牌）- 每人 2 张
+        print(f"\n🃏 开始分配八王（万能牌）...")
+        joker_idx = 0
+        for i in range(self.num_players):
+            # 每人分 2 张王
+            for _ in range(2):
+                if joker_idx < len(joker_cards):
+                    self.players[i].hand.add(joker_cards[joker_idx])
+                    joker_idx += 1
+        
+        print(f"✅ 八王分配完成：{joker_idx} 张万能牌，每人 2 张")
+        
+        # 从牌堆移除已发的八王
+        for card in joker_cards[:joker_idx]:
+            if card in self.deck:
+                self.deck.remove(card)
         
         return bombs_assigned
     
