@@ -1,0 +1,32 @@
+{
+  "rule_name": "标准八王千变",
+  "rule_abbr": "standard",
+  "game_config": {
+    "num_players": 4,
+    "cards_per_player": 28,
+    "deck_config": {
+      "normal_decks": 2,
+      "big_jokers": 4,
+      "small_jokers": 4
+    }
+  },
+  "dealing_config": {
+    "min_bombs_per_player": 2,
+    "jokers_per_player": 2,
+    "bomb_distribution": "balanced"
+  },
+  "simulation_config": {
+    "num_games": 100,
+    "random_seed": null
+  },
+  "output_config": {
+    "export_excel": true,
+    "export_details": true,
+    "statistics": [
+      "bomb_count",
+      "bomb_size_distribution",
+      "joker_distribution",
+      "team_balance"
+    ]
+  }
+}
