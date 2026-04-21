@@ -1,8 +1,9 @@
 # 双扣 - 八王千变 发牌器
 
-**版本**: v1.0  
+**版本**: v1.1（已修正八王规则）  
 **创建时间**: 2026-04-21  
-**作者**: Kami 🐱
+**作者**: Kami 🐱  
+**钉钉文档**: https://alidocs.dingtalk.com/i/nodes/LeBq413JAwjL43gXFr9bXMQ9WDOnGvpb
 
 ---
 
