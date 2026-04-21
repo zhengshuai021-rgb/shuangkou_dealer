@@ -18,15 +18,5 @@
   "simulation_config": {
     "num_games": 100,
     "random_seed": null
-  },
-  "output_config": {
-    "export_excel": true,
-    "export_details": true,
-    "statistics": [
-      "bomb_count",
-      "bomb_size_distribution",
-      "joker_distribution",
-      "team_balance"
-    ]
   }
 }

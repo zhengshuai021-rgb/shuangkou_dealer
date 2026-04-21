@@ -68,7 +68,9 @@ class ExcelExporter:
         self.rule_name = config.get('rule_name', 'unknown')
         self.rule_abbr = config.get('rule_abbr', 'unknown')
         self.wb = Workbook()
-        self.wb.remove(self.wb.active)  # 移除默认 sheet
+        # 保留默认 sheet，重命名为统计总览
+        ws = self.wb.active
+        ws.title = '📊 统计总览'
         
     def generate_filename(self) -> str:
         """生成文件名（包含规则缩写和时间戳）"""
@@ -349,12 +351,270 @@ class ExcelExporter:
         ws.column_dimensions['C'].width = 20
     
     def export(self, results: List[Dict], output_dir: str = '.') -> str:
-        """导出 Excel 文件"""
-        # 创建各个 sheet
-        self.create_summary_sheet(results, len(results))
-        self.create_distribution_sheet(results)
-        self.create_team_balance_sheet(results)
-        self.create_sample_sheet(results)
+        """导出 Excel 文件（所有统计整合到一个 sheet）"""
+        ws = self.wb.active  # 使用默认的统计总览 sheet
+        
+        # 标题
+        ws.merge_cells('A1:H1')
+        title_cell = ws['A1']
+        title_cell.value = f'双扣 - 八王千变 发牌统计报告\n规则：{self.rule_name}'
+        title_cell.font = StyleConfig.TITLE_FONT
+        title_cell.fill = StyleConfig.TITLE_FILL
+        title_cell.alignment = StyleConfig.CENTER_ALIGN
+        
+        # 基本信息
+        ws.merge_cells('A2:H2')
+        info_cell = ws['A2']
+        info_cell.value = f'总对局数：{len(results)} | 生成时间：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
+        info_cell.font = StyleConfig.NORMAL_FONT
+        info_cell.alignment = StyleConfig.CENTER_ALIGN
+        
+        # === 第一部分：汇总分析 ===
+        row = 4
+        ws.merge_cells(f'A{row}:H{row}')
+        section_title = ws[f'A{row}']
+        section_title.value = '📊 汇总分析'
+        section_title.font = Font(name='微软雅黑', size=12, bold=True, color='1F4E79')
+        section_title.alignment = StyleConfig.LEFT_ALIGN
+        
+        # 统计指标表头
+        row += 1
+        headers = ['统计指标', '玩家 1', '玩家 2', '玩家 3', '玩家 4', '总计', '平均', '最大']
+        ws.append(headers)
+        
+        # 设置表头样式
+        for col in range(1, 9):
+            cell = ws.cell(row=row, column=col)
+            cell.font = StyleConfig.HEADER_FONT
+            cell.fill = StyleConfig.HEADER_FILL
+            cell.alignment = StyleConfig.CENTER_ALIGN
+            cell.border = StyleConfig.THIN_BORDER
+        
+        # 计算统计数据
+        stats = {
+            '炸弹总数': [],
+            '4 张炸弹': [],
+            '5 张炸弹': [],
+            '6 张 + 炸弹': [],
+            '万能牌数': []
+        }
+        
+        for result in results:
+            for i in range(4):
+                bombs = result['players'][i]['bombs']
+                jokers = result['players'][i]['jokers']
+                
+                stats['炸弹总数'].append(len(bombs))
+                stats['4 张炸弹'].append(sum(1 for b in bombs if b['size'] == 4))
+                stats['5 张炸弹'].append(sum(1 for b in bombs if b['size'] == 5))
+                stats['6 张 + 炸弹'].append(sum(1 for b in bombs if b['size'] >= 6))
+                stats['万能牌数'].append(jokers)
+        
+        # 写入统计数据
+        row += 1
+        for stat_name, values in stats.items():
+            player_values = [values[i*4:(i+1)*4] for i in range(len(results))]
+            
+            # 每个玩家的平均值
+            for i in range(4):
+                player_vals = [pv[i] for pv in player_values]
+                ws.cell(row=row, column=i+2).value = round(sum(player_vals) / len(results), 2)
+            
+            # 总计和平均
+            all_values = [v for sublist in player_values for v in sublist]
+            ws.cell(row=row, column=6).value = sum(all_values)
+            ws.cell(row=row, column=7).value = round(sum(all_values) / (len(results) * 4), 2)
+            ws.cell(row=row, column=8).value = max(all_values)
+            
+            # 指标名称
+            ws.cell(row=row, column=1).value = stat_name
+            
+            # 设置样式
+            for col in range(1, 9):
+                cell = ws.cell(row=row, column=col)
+                cell.font = StyleConfig.NORMAL_FONT
+                cell.alignment = StyleConfig.CENTER_ALIGN
+                cell.border = StyleConfig.THIN_BORDER
+                if row % 2 == 1:
+                    cell.fill = StyleConfig.ALT_FILL
+            
+            row += 1
+        
+        # === 第二部分：炸弹分布 ===
+        row += 2
+        ws.merge_cells(f'A{row}:H{row}')
+        section_title = ws[f'A{row}']
+        section_title.value = '📈 炸弹大小分布'
+        section_title.font = Font(name='微软雅黑', size=12, bold=True, color='1F4E79')
+        section_title.alignment = StyleConfig.LEFT_ALIGN
+        
+        # 表头
+        row += 1
+        headers = ['炸弹大小', '出现次数', '占比', '平均每局', '说明', '', '', '']
+        ws.append(headers)
+        
+        # 设置表头样式
+        for col in range(1, 6):
+            cell = ws.cell(row=row, column=col)
+            cell.font = StyleConfig.HEADER_FONT
+            cell.fill = StyleConfig.HEADER_FILL
+            cell.alignment = StyleConfig.CENTER_ALIGN
+            cell.border = StyleConfig.THIN_BORDER
+        
+        # 统计炸弹大小分布
+        bomb_size_counter = Counter()
+        for result in results:
+            for player in result['players']:
+                for bomb in player['bombs']:
+                    bomb_size_counter[bomb['size']] += 1
+        
+        total_bombs = sum(bomb_size_counter.values())
+        
+        # 写入数据
+        row += 1
+        for size in sorted(bomb_size_counter.keys()):
+            count = bomb_size_counter[size]
+            percentage = count / total_bombs * 100 if total_bombs > 0 else 0
+            per_game = count / len(results)
+            
+            # 说明
+            if size == 4:
+                desc = '普通炸弹'
+            elif size == 5:
+                desc = '5 张炸弹 (×2)'
+            elif size == 6:
+                desc = '6 张炸弹 (×4)'
+            elif size >= 7:
+                desc = f'{size}张炸弹 (×{2**(size-4)})'
+            else:
+                desc = ''
+            
+            ws.cell(row=row, column=1).value = f'{size}张'
+            ws.cell(row=row, column=2).value = count
+            ws.cell(row=row, column=3).value = f'{percentage:.2f}%'
+            ws.cell(row=row, column=4).value = round(per_game, 2)
+            ws.cell(row=row, column=5).value = desc
+            
+            # 设置样式
+            for col in range(1, 6):
+                cell = ws.cell(row=row, column=col)
+                cell.font = StyleConfig.NORMAL_FONT
+                cell.alignment = StyleConfig.CENTER_ALIGN
+                cell.border = StyleConfig.THIN_BORDER
+                if row % 2 == 0:
+                    cell.fill = StyleConfig.ALT_FILL
+            
+            row += 1
+        
+        # === 第三部分：队伍平衡 ===
+        row += 2
+        ws.merge_cells(f'A{row}:H{row}')
+        section_title = ws[f'A{row}']
+        section_title.value = '⚖️ 队伍平衡分析'
+        section_title.font = Font(name='微软雅黑', size=12, bold=True, color='1F4E79')
+        section_title.alignment = StyleConfig.LEFT_ALIGN
+        
+        # 表头
+        row += 1
+        headers = ['队伍', '平均炸弹数', '平均万能牌数', '胜率估算', '', '', '', '']
+        ws.append(headers)
+        
+        # 设置表头样式
+        for col in range(1, 5):
+            cell = ws.cell(row=row, column=col)
+            cell.font = StyleConfig.HEADER_FONT
+            cell.fill = StyleConfig.HEADER_FILL
+            cell.alignment = StyleConfig.CENTER_ALIGN
+            cell.border = StyleConfig.THIN_BORDER
+        
+        # 统计队伍数据
+        team0_bombs = []
+        team1_bombs = []
+        team0_jokers = []
+        team1_jokers = []
+        
+        for result in results:
+            team0_bomb = sum(len(result['players'][i]['bombs']) for i in [0, 2])
+            team1_bomb = sum(len(result['players'][i]['bombs']) for i in [1, 3])
+            team0_joker = sum(result['players'][i]['jokers'] for i in [0, 2])
+            team1_joker = sum(result['players'][i]['jokers'] for i in [1, 3])
+            
+            team0_bombs.append(team0_bomb)
+            team1_bombs.append(team1_bomb)
+            team0_jokers.append(team0_joker)
+            team1_jokers.append(team1_joker)
+        
+        # 写入数据
+        row += 1
+        for team_name, bombs, jokers in [
+            ('队伍 0 (玩家 1、3)', team0_bombs, team0_jokers),
+            ('队伍 1 (玩家 2、4)', team1_bombs, team1_jokers)
+        ]:
+            avg_bombs = sum(bombs) / len(results)
+            avg_jokers = sum(jokers) / len(results)
+            
+            # 简单的胜率估算（基于炸弹数）
+            total_bombs = sum(team0_bombs) + sum(team1_bombs)
+            if total_bombs > 0:
+                win_rate = sum(bombs) / total_bombs * 100
+            else:
+                win_rate = 50
+            
+            ws.cell(row=row, column=1).value = team_name
+            ws.cell(row=row, column=2).value = round(avg_bombs, 2)
+            ws.cell(row=row, column=3).value = round(avg_jokers, 2)
+            ws.cell(row=row, column=4).value = f'{win_rate:.1f}%'
+            
+            # 设置样式
+            for col in range(1, 5):
+                cell = ws.cell(row=row, column=col)
+                cell.font = StyleConfig.NORMAL_FONT
+                cell.alignment = StyleConfig.CENTER_ALIGN
+                cell.border = StyleConfig.THIN_BORDER
+                if row % 2 == 1:
+                    cell.fill = StyleConfig.ALT_FILL
+            
+            row += 1
+        
+        # === 第四部分：典型牌例 ===
+        row += 2
+        ws.merge_cells(f'A{row}:H{row}')
+        section_title = ws[f'A{row}']
+        section_title.value = '🎴 典型牌例（随机 5 局）'
+        section_title.font = Font(name='微软雅黑', size=12, bold=True, color='1F4E79')
+        section_title.alignment = StyleConfig.LEFT_ALIGN
+        
+        # 随机抽取 5 局
+        samples = random.sample(results, min(5, len(results)))
+        
+        row += 1
+        for idx, result in enumerate(samples):
+            # 局数标题
+            ws.merge_cells(f'A{row}:H{row}')
+            game_title = ws[f'A{row}']
+            game_title.value = f'第 {idx + 1} 局'
+            game_title.font = Font(name='微软雅黑', size=11, bold=True)
+            game_title.alignment = StyleConfig.LEFT_ALIGN
+            
+            # 每个玩家的牌
+            for i, player in enumerate(result['players']):
+                row += 1
+                player_name = f'玩家{i+1} (队伍{player["team"]})'
+                bombs_str = ', '.join([f"{b['rank'] * b['size']}" for b in player['bombs']])
+                jokers_str = f"万能牌×{player['jokers']}"
+                
+                ws.cell(row=row, column=1).value = player_name
+                ws.cell(row=row, column=2).value = f'炸弹：{len(player["bombs"])}个'
+                ws.cell(row=row, column=3).value = jokers_str
+                
+                row += 1
+                ws.merge_cells(f'A{row}:H{row}')
+                ws.cell(row=row, column=1).value = f'炸弹详情：{bombs_str if bombs_str else "无"}'
+        
+        # 调整列宽
+        for col in range(1, 9):
+            ws.column_dimensions[get_column_letter(col)].width = 12
+        ws.column_dimensions['A'].width = 15
         
         # 生成文件名
         filename = self.generate_filename()

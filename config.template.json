@@ -1,0 +1,25 @@
+{
+  "rule_name": "规则名称（用于报告和文档标题）",
+  "rule_abbr": "规则缩写（用于 Excel 文件名，建议英文）",
+  
+  "game_config": {
+    "num_players": "玩家人数（固定为 4）",
+    "cards_per_player": "每人手牌数（固定为 28）",
+    "deck_config": {
+      "normal_decks": "普通牌副数（2 副 =104 张）",
+      "big_jokers": "大王数量（4 张）",
+      "small_jokers": "小王数量（4 张）"
+    }
+  },
+  
+  "dealing_config": {
+    "min_bombs_per_player": "每人最少普通炸弹数（建议 2-3）",
+    "jokers_per_player": "每人万能牌数（固定为 2）",
+    "bomb_distribution": "炸弹分配策略（balanced=均衡）"
+  },
+  
+  "simulation_config": {
+    "num_games": "模拟局数（建议 100-1000）",
+    "random_seed": "随机种子（null=随机，填数字=可复现）"
+  }
+}
