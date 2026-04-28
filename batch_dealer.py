@@ -596,17 +596,21 @@ class ExcelExporter:
             game_title.font = Font(name='微软雅黑', size=11, bold=True)
             game_title.alignment = StyleConfig.LEFT_ALIGN
             
-            # 每个玩家的牌
+            # 每个玩家的完整手牌
             for i, player in enumerate(result['players']):
                 row += 1
                 player_name = f'玩家{i+1} (队伍{player["team"]})'
                 bombs_str = ', '.join([f"{b['rank'] * b['size']}" for b in player['bombs']])
                 jokers_str = f"万能牌×{player['jokers']}"
+                hand_str = player.get('hand_cards_str', '')
                 
                 ws.cell(row=row, column=1).value = player_name
                 ws.cell(row=row, column=2).value = f'炸弹：{len(player["bombs"])}个'
                 ws.cell(row=row, column=3).value = jokers_str
                 
+                row += 1
+                ws.merge_cells(f'A{row}:H{row}')
+                ws.cell(row=row, column=1).value = f'手牌：{hand_str if hand_str else "无"}'
                 row += 1
                 ws.merge_cells(f'A{row}:H{row}')
                 ws.cell(row=row, column=1).value = f'炸弹详情：{bombs_str if bombs_str else "无"}'
@@ -652,13 +656,16 @@ class BatchSimulator:
         for player in dealer.players:
             bombs = player.hand.find_bombs()
             jokers = sum(1 for card in player.hand.cards if card.rank in ['👑', '🃏'])
+            # 保存完整手牌列表（中文显示）
+            hand_cards_str = ', '.join(str(card) for card in player.hand.cards)
             
             player_data = {
                 'id': player.id,
                 'team': player.team,
                 'bombs': [{'rank': b.rank, 'size': b.size} for b in bombs],
                 'jokers': jokers,
-                'total_cards': player.hand.total_cards()
+                'total_cards': player.hand.total_cards(),
+                'hand_cards_str': hand_cards_str  # 完整手牌字符串
             }
             result['players'].append(player_data)
         
