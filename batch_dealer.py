@@ -639,6 +639,8 @@ class BatchSimulator:
         self.config = config
         self.num_games = config.get('simulation_config', {}).get('num_games', 100)
         self.min_bombs = config.get('dealing_config', {}).get('min_bombs_per_player', 2)
+        self.jokers_per_player = config.get('dealing_config', {}).get('jokers_per_player')
+        self.bomb_size_range = config.get('dealing_config', {}).get('bomb_size_range')
         self.seed = config.get('simulation_config', {}).get('random_seed')
         
         if self.seed is not None:
@@ -647,15 +649,16 @@ class BatchSimulator:
     def simulate_one_game(self) -> Dict:
         """模拟一局游戏"""
         dealer = ShuangkouDealer(num_players=4)
-        dealer.deal(min_bombs_per_player=self.min_bombs, verbose=False)
+        dealer.deal(min_bombs_per_player=self.min_bombs, bomb_size_range=self.bomb_size_range, jokers_per_player=self.jokers_per_player, verbose=False)
         
         result = {
             'players': []
         }
         
         for player in dealer.players:
-            bombs = player.hand.find_bombs()
+            bombs = player.hand.find_bombs_with_jokers()
             jokers = sum(1 for card in player.hand.cards if card.rank in ['👑', '🃏'])
+            effective_bombs = player.hand.count_effective_bombs()
             # 保存完整手牌列表（中文显示）
             hand_cards_str = ', '.join(str(card) for card in player.hand.cards)
             
@@ -663,6 +666,7 @@ class BatchSimulator:
                 'id': player.id,
                 'team': player.team,
                 'bombs': [{'rank': b.rank, 'size': b.size} for b in bombs],
+                'effective_bombs': effective_bombs,
                 'jokers': jokers,
                 'total_cards': player.hand.total_cards(),
                 'hand_cards_str': hand_cards_str  # 完整手牌字符串

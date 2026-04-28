@@ -12,7 +12,8 @@
   },
   "dealing_config": {
     "min_bombs_per_player": 2,
-    "jokers_per_player": 2,
+    "bomb_size_range": [4, 6],
+    "jokers_per_player": [0, 4],
     "bomb_distribution": "balanced"
   },
   "simulation_config": {

@@ -88,13 +88,89 @@ class Hand:
         return dict(counter)
     
     def find_bombs(self) -> List[Bomb]:
-        """找出所有炸弹（4 张及以上）"""
+        """找出所有炸弹（4 张及以上，不含万能牌补充）"""
         bombs = []
         counter = self.count_by_rank()
         for rank, count in counter.items():
             if count >= 4:
                 bomb_cards = [c for c in self.cards if c.rank == rank]
                 bombs.append(Bomb(cards=bomb_cards, rank=rank))
+        return sorted(bombs, key=lambda b: b.value(), reverse=True)
+
+    def count_effective_bombs(self, min_bombs: int = 2) -> int:
+        """
+        计算有效炸弹数（含万能牌补充）。
+        规则：同点数牌数 + 万能牌数 ≥ 4 就算一个炸弹。
+        万能牌优先补充数量最少的潜在炸弹。
+        
+        Args:
+            min_bombs: 最小炸弹数要求（用于判断哪些组合算有效炸弹）
+            
+        Returns:
+            有效炸弹数量
+        """
+        counter = self.count_by_rank()
+        jokers = sum(counter.get(j, 0) for j in ['👑', '🃏'])
+        
+        # 找出所有潜在炸弹（≥3 张同点数的组合，有可能用万能牌补足到 4）
+        potentials = []
+        for rank, count in counter.items():
+            if rank not in ['👑', '🃏'] and count >= 3:
+                potentials.append((rank, count))
+        
+        # 按数量从少到多排序（优先补充数量少的）
+        potentials.sort(key=lambda x: x[1])
+        
+        remaining_jokers = jokers
+        valid_bombs = 0
+        
+        for rank, count in potentials:
+            if count >= 4:
+                # 已经是炸弹
+                valid_bombs += 1
+            elif remaining_jokers > 0:
+                # 用万能牌补足到 4 张
+                need = 4 - count
+                if remaining_jokers >= need:
+                    valid_bombs += 1
+                    remaining_jokers -= need
+        
+        return valid_bombs
+
+    def find_bombs_with_jokers(self) -> List[Bomb]:
+        """
+        找出所有炸弹（含万能牌补充的）。
+        用于统计展示。
+        """
+        counter = self.count_by_rank()
+        jokers = sum(counter.get(j, 0) for j in ['👑', '🃏'])
+        
+        bombs = []
+        remaining_jokers = jokers
+        
+        # 先找天然炸弹（≥4 张）
+        for rank, count in counter.items():
+            if rank not in ['👑', '🃏'] and count >= 4:
+                bomb_cards = [c for c in self.cards if c.rank == rank]
+                bombs.append(Bomb(cards=bomb_cards, rank=rank))
+        
+        # 再找可用万能牌补足的潜在炸弹（3 张同点数）
+        potentials = []
+        for rank, count in counter.items():
+            if rank not in ['👑', '🃏'] and count == 3:
+                potentials.append((rank, count))
+        
+        potentials.sort(key=lambda x: x[0])  # 按牌面值排序
+        
+        for rank, count in potentials:
+            if remaining_jokers > 0:
+                bomb_cards = [c for c in self.cards if c.rank == rank]
+                # 加一张万能牌代表补充（实际展示用）
+                joker_card = Card(rank='👑', suit='+癞子')
+                bomb_cards.append(joker_card)
+                bombs.append(Bomb(cards=bomb_cards, rank=rank))
+                remaining_jokers -= 1
+        
         return sorted(bombs, key=lambda b: b.value(), reverse=True)
     
     def total_cards(self) -> int:
@@ -161,13 +237,18 @@ class ShuangkouDealer:
             )
             self.players.append(player)
     
-    def deal_bombs_first(self, min_bombs_per_player: int = 2):
+    def deal_bombs_first(self, min_bombs_per_player: int = 2, bomb_size_range=None, jokers_per_player=None):
         """
         优先发炸弹策略（八王千变版本）
         核心思路：
-        1. 先确保每人有指定数量的普通炸弹
-        2. 八王（8 张万能牌）均匀分给每人 2 张
-        3. 再发其他牌
+        1. 随机拆分炸弹（支持可变大小）
+        2. 八王（8 张万能牌）随机分给每人（支持范围配置）
+        3. 校验时算上万能牌：同点数牌 + 万能牌 ≥ 4 算炸弹
+        
+        Args:
+            min_bombs_per_player: 每人最少炸弹数
+            bomb_size_range: 炸弹大小范围 [min, max]，默认 [4, 4]
+            jokers_per_player: 每人王数，可以是 int（固定）、[min, max]（范围）或 None（默认每人2张）
         """
         # 1. 创建牌堆并按点数分组
         self.deck = self.create_deck()
@@ -194,45 +275,64 @@ class ShuangkouDealer:
         print(f"   普通炸弹：{[(r + '(' + str(len(c)) + '张)') for r, c in bomb_candidates]}")
         print(f"   八王（癞子）: 👑×4 + 🃏×4 = 8 张（可当任意牌）")
         
-        # 4. 给每个玩家分配炸弹
+        # 解析炸弹大小范围配置（用于控制拆分多样性）
+        if bomb_size_range is None:
+            bomb_size_range = [4, 4]  # 默认固定4张
+        bomb_min_size, bomb_max_size = bomb_size_range
+        
+        # 4. 给每个玩家分配炸弹（随机拆分大小）
         bombs_assigned = 0
         player_bomb_count = [0] * self.num_players
         
         for rank, cards in bomb_candidates:
+            total = len(cards)  # 8 张
+            
             # 找出当前炸弹最少的玩家
             min_bombs = min(player_bomb_count)
-            if min_bombs >= min_bombs_per_player:
-                break  # 所有人都已达到最小炸弹数
+            if min_bombs >= min_bombs_per_player + 2:
+                break  # 大家都够了，保留一些炸弹在牌堆中作为普通牌
             
-            # 给炸弹最少的玩家发这个炸弹
             for i in range(self.num_players):
                 if player_bomb_count[i] == min_bombs:
-                    # 发牌（全部 8 张或拆分）
-                    cards_to_deal = cards[:8] if len(cards) >= 8 else cards
+                    # 随机决定拆分方式（避免极端拆分，最小 2 张）
+                    possible_splits = []
+                    for s in range(2, total - 1):  # 2 ~ 6
+                        if total - s >= 2:  # 两部分都至少 2 张
+                            possible_splits.append(s)
                     
-                    # 可以拆分成两个 4 张炸弹
-                    if len(cards_to_deal) >= 8 and player_bomb_count[i] < min_bombs_per_player:
-                        # 发 4 张
-                        for card in cards_to_deal[:4]:
+                    if possible_splits:  # 始终拆分，增加多样性
+                        split_size = random.choice(possible_splits)
+                        
+                        # 第一部分给当前玩家
+                        for card in cards[:split_size]:
                             self.players[i].hand.add(card)
                         player_bomb_count[i] += 1
                         bombs_assigned += 1
                         
-                        # 剩下 4 张给另一个玩家
-                        other_player = (i + 1) % self.num_players
-                        for card in cards_to_deal[4:8]:
-                            self.players[other_player].hand.add(card)
-                        player_bomb_count[other_player] += 1
-                        bombs_assigned += 1
-                    elif len(cards_to_deal) >= 4:
-                        # 发一个完整炸弹
-                        for card in cards_to_deal[:4]:
+                        # 剩余部分给另一个炸弹最少的玩家
+                        other_min = min(player_bomb_count)
+                        other_idx = player_bomb_count.index(other_min)
+                        if other_idx != i:  # 确保不是同一个玩家
+                            for card in cards[split_size:]:
+                                self.players[other_idx].hand.add(card)
+                            player_bomb_count[other_idx] += 1
+                            bombs_assigned += 1
+                        else:
+                            # 如果所有玩家炸弹数相同，给下一个
+                            other_idx = (i + 1) % self.num_players
+                            for card in cards[split_size:]:
+                                self.players[other_idx].hand.add(card)
+                            player_bomb_count[other_idx] += 1
+                            bombs_assigned += 1
+                    elif total >= 4:
+                        # 全部给一个玩家
+                        for card in cards:
                             self.players[i].hand.add(card)
                         player_bomb_count[i] += 1
                         bombs_assigned += 1
                     
                     # 从牌堆移除已发的牌
-                    for card in cards_to_deal:
+                    for card in cards:
                         if card in self.deck:
                             self.deck.remove(card)
                     
@@ -240,18 +340,42 @@ class ShuangkouDealer:
         
         print(f"✅ 炸弹分配完成：共分配 {bombs_assigned} 个炸弹")
         print(f"   每人炸弹数：{player_bomb_count}")
+        print(f"   炸弹大小范围：{bomb_min_size}~{bomb_max_size} 张")
         
-        # 5. 分配八王（万能牌）- 每人 2 张
+        # 5. 分配八王（万能牌）
         print(f"\n🃏 开始分配八王（万能牌）...")
+        
+        # 解析 jokers_per_player 配置
+        if jokers_per_player is None:
+            joker_range = [2, 2]  # 默认每人2张
+        elif isinstance(jokers_per_player, int):
+            joker_range = [jokers_per_player, jokers_per_player]
+        elif isinstance(jokers_per_player, (list, tuple)) and len(jokers_per_player) == 2:
+            joker_range = [int(jokers_per_player[0]), int(jokers_per_player[1])]
+        else:
+            joker_range = [2, 2]
+        
+        # 生成每人王数（随机但总和=8）
+        joker_distribution = self._generate_joker_distribution(joker_range)
+        
         joker_idx = 0
+        random.shuffle(joker_cards)  # 打乱王的顺序（大小王混合）
         for i in range(self.num_players):
-            # 每人分 2 张王
-            for _ in range(2):
+            for _ in range(joker_distribution[i]):
                 if joker_idx < len(joker_cards):
                     self.players[i].hand.add(joker_cards[joker_idx])
                     joker_idx += 1
         
-        print(f"✅ 八王分配完成：{joker_idx} 张万能牌，每人 2 张")
+        dist_str = '、'.join([f"玩家{i+1}×{joker_distribution[i]}" for i in range(self.num_players)])
+        print(f"✅ 八王分配完成：{joker_idx} 张万能牌，分布：{dist_str}")
+        
+        # 5b. 校验：检查每人有效炸弹数（含万能牌补充）
+        print(f"\n🔍 校验有效炸弹数（含万能牌补充）...")
+        for i, player in enumerate(self.players):
+            natural_bombs = len(player.hand.find_bombs_with_jokers())
+            effective_bombs = player.hand.count_effective_bombs()
+            status = "✅" if effective_bombs >= min_bombs_per_player else "⚠️"
+            print(f"   玩家{i+1}: 天然炸弹 {natural_bombs} 个 → 有效炸弹 {effective_bombs} 个 {status}")
         
         # 从牌堆移除已发的八王
         for card in joker_cards[:joker_idx]:
@@ -285,12 +409,47 @@ class ShuangkouDealer:
         total_dealt = sum(p.hand.total_cards() for p in self.players)
         print(f"✅ 发牌完成：共发出 {total_dealt} 张（每人 28 张）")
     
-    def deal(self, min_bombs_per_player: int = 2, verbose: bool = True) -> List[Player]:
+    def _generate_joker_distribution(self, joker_range: list) -> list:
+        """
+        生成八王分配方案，保证每人王数在范围内，总和=8张。
+        
+        Args:
+            joker_range: [min, max] 每人王数范围
+            
+        Returns:
+            每人分到的王数列表，如 [1, 3, 2, 2]
+        """
+        j_min, j_max = joker_range
+        num_players = self.num_players
+        total_jokers = 8
+        
+        # 检查范围是否合理：最小值*4 <= 8 <= 最大值*4
+        if j_min * num_players > total_jokers or j_max * num_players < total_jokers:
+            # 范围不合理，回退到平均分配（每人2张）
+            return [2] * num_players
+        
+        # 多次尝试，生成满足条件的分配方案
+        for _ in range(100):
+            # 给每人随机分配 [j_min, j_max]
+            dist = [random.randint(j_min, j_max) for _ in range(num_players)]
+            if sum(dist) == total_jokers:
+                return dist
+        
+        # 如果随机都失败，用贪心构造一个合法方案
+        dist = [j_min] * num_players
+        remaining = total_jokers - sum(dist)
+        for i in range(remaining):
+            dist[i % num_players] += 1
+        return dist
+    
+    def deal(self, min_bombs_per_player: int = 2, bomb_size_range=None, jokers_per_player=None, verbose: bool = True) -> List[Player]:
         """
         完整发牌流程
         
         Args:
             min_bombs_per_player: 每人最少炸弹数
+            bomb_size_range: 炸弹大小范围 [min, max]
+            jokers_per_player: 每人王数
             verbose: 是否输出详细信息
         """
         print("=" * 60)
@@ -300,8 +459,8 @@ class ShuangkouDealer:
         # 1. 初始化玩家
         self.initialize_players()
         
-        # 2. 优先发炸弹
-        self.deal_bombs_first(min_bombs_per_player)
+        # 2. 优先发炸弹 + 分配八王
+        self.deal_bombs_first(min_bombs_per_player, bomb_size_range=bomb_size_range, jokers_per_player=jokers_per_player)
         
         # 3. 发完剩余牌
         self.deal_remaining_cards()
