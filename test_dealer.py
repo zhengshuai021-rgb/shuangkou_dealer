@@ -103,10 +103,66 @@ def test_team_distribution():
     print(f"   差距：{abs(team0_bombs - team1_bombs)} 个")
 
 
+def test_chain_bombs_skip():
+    """测试连炸预设关闭（默认行为）"""
+    print("\n" + "=" * 60)
+    print("🧪 测试 6: 连炸预设关闭（min_chains_per_player=0）")
+    print("=" * 60)
+    
+    dealer = ShuangkouDealer(num_players=4)
+    dealer.deal(min_bombs_per_player=2, min_chains_per_player=0, verbose=True)
+    
+    total_cards = sum(p.hand.total_cards() for p in dealer.players)
+    assert total_cards == 112, f"总牌数错误：{total_cards}"
+    print(f"\n✅ 测试通过：连炸预设已跳过，总牌数 {total_cards} 张")
+
+
+def test_chain_bombs_enabled():
+    """测试连炸预设开启"""
+    print("\n" + "=" * 60)
+    print("🧪 测试 7: 连炸预设开启（min_chains_per_player=1）")
+    print("=" * 60)
+    
+    dealer = ShuangkouDealer(num_players=4)
+    dealer.deal(min_bombs_per_player=2, min_chains_per_player=1, verbose=True)
+    
+    total_cards = sum(p.hand.total_cards() for p in dealer.players)
+    assert total_cards == 112, f"总牌数错误：{total_cards}"
+    assert all(p.hand.total_cards() == 28 for p in dealer.players), "每人牌数应为 28 张"
+    print(f"\n✅ 测试通过：连炸预设已启用，每人 28 张牌")
+
+
+def test_chain_bombs_multiple_games():
+    """测试连炸预设多局稳定性"""
+    print("\n" + "=" * 60)
+    print("🧪 测试 8: 连炸预设多局稳定性（100 局）")
+    print("=" * 60)
+    
+    errors = 0
+    for i in range(100):
+        try:
+            dealer = ShuangkouDealer(num_players=4)
+            dealer.deal(min_bombs_per_player=2, min_chains_per_player=1, verbose=False)
+            total_cards = sum(p.hand.total_cards() for p in dealer.players)
+            if total_cards != 112:
+                errors += 1
+                print(f"   ❌ 第 {i+1} 局：总牌数 {total_cards} != 112")
+        except Exception as e:
+            errors += 1
+            print(f"   ❌ 第 {i+1} 局异常：{e}")
+    
+    print(f"\n📊 100 局统计：")
+    print(f"   成功：{100 - errors} 局")
+    print(f"   失败：{errors} 局")
+    
+    assert errors == 0, f"有 {errors} 局发牌失败"
+    print(f"\n✅ 测试通过：100 局全部成功")
+
+
 def run_all_tests():
     """运行所有测试"""
     print("\n" + "🎴" * 30)
-    print("双扣 - 八王千变 发牌器 测试套件")
+    print("双扣 - 八王千变 发牌器 测试套件 v2.0")
     print("🎴" * 30)
     
     test_card_count()
@@ -114,6 +170,9 @@ def run_all_tests():
     test_high_bombs()
     test_bomb_distribution()
     test_team_distribution()
+    test_chain_bombs_skip()
+    test_chain_bombs_enabled()
+    test_chain_bombs_multiple_games()
     
     print("\n" + "=" * 60)
     print("✅ 所有测试完成！")

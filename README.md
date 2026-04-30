@@ -1,7 +1,8 @@
 # 双扣 - 八王千变 发牌器
 
-**版本**: v1.1（已修正八王规则）  
+**版本**: v2.0（新增连炸预设）  
 **创建时间**: 2026-04-21  
+**更新时间**: 2026-04-30  
 **作者**: Kami 🐱  
 **钉钉文档**: https://alidocs.dingtalk.com/i/nodes/LeBq413JAwjL43gXFr9bXMQ9WDOnGvpb
 
@@ -48,10 +49,10 @@
 **核心需求**: 保证每个人都有更多的炸弹
 
 ### 发牌策略
-1. 优先保证每人至少有 1-2 个炸弹
-2. 炸弹张数分布均匀（4-8 张混合）
-3. 保留王炸和明牌的灵活性
-4. 考虑连炸的可能性
+1. **连炸预设**（可选）: 先发 3+个点数相连的连炸组
+2. **炸弹预设**: 优先保证每人至少有 1-2 个炸弹
+3. **炸弹张数分布均匀**: 4-8 张混合
+4. **保留王炸和明牌的灵活性**
 
 ---
 
@@ -59,7 +60,11 @@
 
 ### 单局发牌
 ```bash
+# 基础用法
 python dealer.py --players 4 --bombs 2
+
+# 连炸模式（每人1组连炸）
+python dealer.py --players 4 --bombs 2 --chains 1
 ```
 
 ### 批量模拟（生成Excel统计）
@@ -71,6 +76,46 @@ python batch_dealer.py --config config.json
 ```bash
 python batch_dealer.py --config your_config.json --output ./output
 ```
+
+---
+
+## 📊 配置参数
+
+### config.json 参数说明
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `min_bombs_per_player` | int | 2 | 每人最少普通炸弹数 |
+| **`min_chains_per_player`** | int | **0** | **每人最少连炸组数（0=跳过，1=每人1组）** |
+| `bomb_size_range` | [int,int] | [4,4] | 预设炸弹大小范围 |
+| `jokers_per_player` | int/[int,int] | 2 | 每人万能牌数 |
+
+### 连炸预设说明
+
+**什么是连炸？**
+- 连炸 = 3+个点数相连的炸弹组
+- 例: JJJJ-QQQQ-KKKK = 3连环炸弹
+- 线数 = 最小炸弹张数 + 连环数
+- 贡献分 = 2^(线数-5)
+
+**配置示例**:
+```json
+{
+  "dealing_config": {
+    "min_bombs_per_player": 2,
+    "min_chains_per_player": 1,  // 开启连炸预设，每人1组
+    "bomb_size_range": [4, 6]
+  }
+}
+```
+
+**效果对比**:
+| 配置 | 平均贡献分 | 特点 |
+|------|-----------|------|
+| min_chains_per_player=0 | ~2.63 分 | 无连炸 |
+| min_chains_per_player=1 | ~5.16 分 | 每人1组3~4连环 |
+
+---
 
 ## 📊 Excel 统计指标
 
@@ -84,7 +129,11 @@ python batch_dealer.py --config your_config.json --output ./output
 | 顺子数量 | 5+张连牌（排除炸弹用过的牌） |
 | 对子数量 | 2张同点数（排除炸弹用过的牌） |
 | 三条数量 | 3张同点数（排除炸弹用过的牌） |
-| 贡献分 | 5线及以上炸弹的贡献分总和 |
+| 贡献分 | 连炸+单炸的贡献分总和 |
+| 连炸贡献分 | 来自连炸的贡献分 |
+| 单炸贡献分 | 来自单个炸弹的贡献分 |
+
+---
 
 ## 📁 项目文件
 
@@ -93,9 +142,11 @@ python batch_dealer.py --config your_config.json --output ./output
 | `dealer.py` | 单局发牌器核心逻辑 |
 | `batch_dealer.py` | 批量模拟 + Excel导出 |
 | `config.json` | 标准配置文件 |
-| `RULES.md` | 📖 完整游戏规则（本文档） |
+| `config.template.json` | 配置模板 |
+| `RULES.md` | 📖 完整游戏规则 |
 | `DESIGN.md` | 发牌器设计文档 |
 | `FLOWCHART.md` | 发牌流程图 |
+| `test_dealer.py` | 测试套件 |
 
 ---
 

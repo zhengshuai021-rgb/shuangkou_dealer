@@ -14,7 +14,9 @@
   
   "dealing_config": {
     "min_bombs_per_player": "每人最少普通炸弹数（建议 2-3）",
+    "min_chains_per_player": "每人最少连炸组数（0=跳过，1=每人1组3~4连环）",
     "jokers_per_player": "每人万能牌数（固定为 2）",
+    "bomb_size_range": "炸弹大小范围 [最小, 最大]，默认 [4,4]",
     "bomb_distribution": "炸弹分配策略（balanced=均衡）"
   },
   
