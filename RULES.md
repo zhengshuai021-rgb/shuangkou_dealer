@@ -159,24 +159,57 @@ X线Y连环炸弹：组成连炸的炸弹中，只要点数相连，张数可不
 {
   "rule_name": "标准八王千变",
   "rule_abbr": "standard",
-  "dealing_config": {
+  "game_config": {
     "num_players": 4,
     "cards_per_player": 28,
+    "deck_config": {
+      "normal_decks": 2,
+      "big_jokers": 4,
+      "small_jokers": 4
+    }
+  },
+  "dealing_config": {
     "min_bombs_per_player": 2,
-    "jokers_per_player": [1, 3],
-    "bomb_size_range": [4, 4]
+    "min_chains_per_player": 0,
+    "bomb_size_range": [4, 6],
+    "jokers_per_player": [0, 4],
+    "bomb_distribution": "balanced"
   },
   "simulation_config": {
     "num_games": 100,
-    "random_seed": null,
-    "verbose": false
-  },
-  "output_config": {
-    "export_excel": true,
-    "output_dir": "."
+    "random_seed": null
   }
 }
 ```
+
+### 配置参数说明
+
+#### game_config（牌数配置）
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `num_players` | 4 | 玩家人数（固定4人） |
+| `cards_per_player` | 28 | 每人手牌数（固定28张） |
+| `deck_config.normal_decks` | 2 | 普通牌副数 |
+| `deck_config.big_jokers` | 4 | 大王数量 |
+| `deck_config.small_jokers` | 4 | 小王数量 |
+
+#### dealing_config（发牌配置）
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `min_bombs_per_player` | 2 | 每人最少普通炸弹数 |
+| `min_chains_per_player` | 0 | 每人最少连炸组数（0=跳过，1=每人1组3~4连环） |
+| `bomb_size_range` | [4, 6] | 预设炸弹大小范围 [最小, 最大] |
+| `jokers_per_player` | [0, 4] | 每人万能牌范围（总和=8） |
+| `bomb_distribution` | balanced | 炸弹分配策略 |
+
+#### simulation_config（模拟配置）
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `num_games` | 100 | 模拟局数（建议100~5000） |
+| `random_seed` | null | 随机种子（null=随机，填数字=可复现） |
 
 ### 牌数说明
 
@@ -184,6 +217,28 @@ X线Y连环炸弹：组成连炸的炸弹中，只要点数相连，张数可不
 - **每人手牌**：28张
 - **点数分布**：每个点数8张（A-2各8张）+ 4大王 + 4小王 = 112张
 - **万能牌**：大王(👑)4张、小王(🃏)4张，共8张
+
+### 连炸配置说明
+
+**`min_chains_per_player` 参数**（v2.0 新增）：
+
+| 值 | 效果 |
+|----|------|
+| 0 | 不预设连炸（默认） |
+| 1 | 每人先发1组3~4连环炸弹 |
+
+**连炸分配逻辑**：
+- 13种点数分成4个连续段（3+3+3+4=13）
+- 段大小随机打乱，起始位置随机偏移
+- 每人一段，每段内点数相连形成连炸
+- 每种点数取4张，剩余4张留给普通炸弹
+
+**效果对比**（5000局统计）：
+
+| min_chains_per_player | 平均贡献分 | 特点 |
+|----------------------|-----------|------|
+| 0（关闭） | ~2.63 分 | 无连炸，贡献分较低 |
+| 1（开启） | ~5.16 分 | 每人1组连炸，贡献分显著提升 |
 
 ---
 
