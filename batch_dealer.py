@@ -827,6 +827,7 @@ class BatchSimulator:
         self.min_bombs = config.get('dealing_config', {}).get('min_bombs_per_player', 2)
         self.jokers_per_player = config.get('dealing_config', {}).get('jokers_per_player')
         self.bomb_size_range = config.get('dealing_config', {}).get('bomb_size_range')
+        self.min_chains = config.get('dealing_config', {}).get('min_chains_per_player', 0)
         self.seed = config.get('simulation_config', {}).get('random_seed')
         
         if self.seed is not None:
@@ -835,7 +836,7 @@ class BatchSimulator:
     def simulate_one_game(self) -> Dict:
         """模拟一局游戏"""
         dealer = ShuangkouDealer(num_players=4)
-        dealer.deal(min_bombs_per_player=self.min_bombs, bomb_size_range=self.bomb_size_range, jokers_per_player=self.jokers_per_player, verbose=False)
+        dealer.deal(min_bombs_per_player=self.min_bombs, bomb_size_range=self.bomb_size_range, jokers_per_player=self.jokers_per_player, min_chains_per_player=self.min_chains, verbose=False)
         
         result = {
             'players': []

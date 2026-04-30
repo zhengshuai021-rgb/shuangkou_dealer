@@ -20,10 +20,11 @@
       0,
       4
     ],
-    "bomb_distribution": "balanced"
+    "bomb_distribution": "balanced",
+    "min_chains_per_player": 0
   },
   "simulation_config": {
-    "num_games": 5000,
+    "num_games": 100,
     "random_seed": null
   }
 }

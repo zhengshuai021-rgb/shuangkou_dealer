@@ -435,7 +435,81 @@ class ShuangkouDealer:
             )
             self.players.append(player)
     
-    def deal_bombs_first(self, min_bombs_per_player: int = 2, bomb_size_range=None, jokers_per_player=None):
+    def deal_chain_bombs(self, min_chains_per_player: int = 0):
+        """
+        优先发连炸（3+个点数相连的炸弹组）。
+        每种点数 8 张牌，连炸取 4 张，剩余 4 张留给普通炸弹。
+        13 种点数分成 4 个连续段（如 3+3+3+4=13），每人一段保证都有连炸。
+        如果 min_chains_per_player=0 则跳过。
+        
+        Args:
+            min_chains_per_player: 每人最少连炸组数（当前仅支持 0 或 1）
+        
+        Returns:
+            实际分配的连炸组数
+        """
+        if min_chains_per_player <= 0:
+            print(f"\n🔗 连炸配置为0，跳过连炸发牌")
+            return 0
+        
+        self.deck = self.create_deck()
+        rank_groups = defaultdict(list)
+        for card in self.deck:
+            rank_groups[card.rank].append(card)
+        
+        all_ranks = [r for r in CARD_RANKS if r not in ['👑', '🃏']]  # 13 种
+        total_ranks = len(all_ranks)  # 13
+        
+        # 13 种点数分成 4 个连续段，保证每段 ≥3
+        # 可能组合：3+3+3+4=13
+        base = total_ranks // self.num_players  # 3
+        extra = total_ranks % self.num_players   # 1
+        sizes = [base + (1 if i < extra else 0) for i in range(self.num_players)]
+        random.shuffle(sizes)  # 随机打乱段大小分配
+        
+        # 随机偏移量，让起始位置不同
+        offset = random.randint(0, total_ranks - 1)
+        
+        chains_assigned = 0
+        player_chain_count = [0] * self.num_players
+        
+        print(f"\n🔗 开始分配连炸（每人至少 {min_chains_per_player} 组）...")
+        print(f"   段大小分配：{sizes}，偏移量：{offset}")
+        
+        pos = offset
+        for player_idx in range(self.num_players):
+            seg_size = sizes[player_idx]
+            if seg_size < 3:
+                continue
+            
+            # 从 pos 开始取 seg_size 个连续点数（循环）
+            chain_ranks = []
+            for j in range(seg_size):
+                idx = pos % total_ranks
+                chain_ranks.append(all_ranks[idx])
+                pos += 1
+            
+            # 每种点数取 4 张给玩家
+            for rank in chain_ranks:
+                cards = rank_groups[rank]
+                available = [c for c in cards if c in self.deck]
+                if len(available) < 4:
+                    continue  # 不够4张则跳过
+                selected = random.sample(available, 4)
+                for card in selected:
+                    self.players[player_idx].hand.add(card)
+                    self.deck.remove(card)
+            
+            player_chain_count[player_idx] += 1
+            chains_assigned += 1
+            ranks_str = '-'.join(chain_ranks)
+            print(f"   玩家{player_idx+1}: [{ranks_str}] 连炸({seg_size}连环)")
+        
+        print(f"✅ 连炸分配完成：共 {chains_assigned} 组，每人连炸数：{player_chain_count}")
+        return chains_assigned
+
+
+    def deal_bombs_first(self, min_bombs_per_player: int = 2, bomb_size_range=None, jokers_per_player=None, chain_bombs_already_dealt: bool = False):
         """
         优先发炸弹策略（八王千变版本）
         核心思路：
@@ -447,9 +521,10 @@ class ShuangkouDealer:
             min_bombs_per_player: 每人最少炸弹数
             bomb_size_range: 炸弹大小范围 [min, max]，默认 [4, 4]
             jokers_per_player: 每人王数，可以是 int（固定）、[min, max]（范围）或 None（默认每人2张）
+            chain_bombs_already_dealt: 如果连炸已先发，跳过牌堆初始化
         """
-        # 1. 创建牌堆并按点数分组
-        self.deck = self.create_deck()
+        if not chain_bombs_already_dealt:
+            self.deck = self.create_deck()
         
         # 2. 统计每个点数的牌数
         rank_groups = defaultdict(list)
@@ -479,62 +554,59 @@ class ShuangkouDealer:
         bomb_min_size, bomb_max_size = bomb_size_range
         
         # 4. 给每个玩家分配炸弹（随机拆分大小）
+        # 考虑连炸阶段已有的手牌数，手牌少的玩家优先多拿炸弹
         bombs_assigned = 0
         player_bomb_count = [0] * self.num_players
+        player_existing_cards = [p.hand.total_cards() for p in self.players]
         
         for rank, cards in bomb_candidates:
-            total = len(cards)  # 8 张
+            total = len(cards)  # 可能 4 或 8 张
             
-            # 找出当前炸弹最少的玩家
+            # 找出当前炸弹最少且手牌较少的玩家
             min_bombs = min(player_bomb_count)
+            candidates = [i for i in range(self.num_players) if player_bomb_count[i] == min_bombs]
+            # 在炸弹数相同的中选手牌最少的
+            i = min(candidates, key=lambda x: player_existing_cards[x])
+            
             if min_bombs >= min_bombs_per_player + 2:
                 break  # 大家都够了，保留一些炸弹在牌堆中作为普通牌
             
-            for i in range(self.num_players):
-                if player_bomb_count[i] == min_bombs:
-                    # 随机决定拆分方式（避免极端拆分，最小 2 张）
-                    possible_splits = []
-                    for s in range(2, total - 1):  # 2 ~ 6
-                        if total - s >= 2:  # 两部分都至少 2 张
-                            possible_splits.append(s)
-                    
-                    if possible_splits:  # 始终拆分，增加多样性
-                        split_size = random.choice(possible_splits)
-                        
-                        # 第一部分给当前玩家
-                        for card in cards[:split_size]:
-                            self.players[i].hand.add(card)
-                        player_bomb_count[i] += 1
-                        bombs_assigned += 1
-                        
-                        # 剩余部分给另一个炸弹最少的玩家
-                        other_min = min(player_bomb_count)
-                        other_idx = player_bomb_count.index(other_min)
-                        if other_idx != i:  # 确保不是同一个玩家
-                            for card in cards[split_size:]:
-                                self.players[other_idx].hand.add(card)
-                            player_bomb_count[other_idx] += 1
-                            bombs_assigned += 1
-                        else:
-                            # 如果所有玩家炸弹数相同，给下一个
-                            other_idx = (i + 1) % self.num_players
-                            for card in cards[split_size:]:
-                                self.players[other_idx].hand.add(card)
-                            player_bomb_count[other_idx] += 1
-                            bombs_assigned += 1
-                    elif total >= 4:
-                        # 全部给一个玩家
-                        for card in cards:
-                            self.players[i].hand.add(card)
-                        player_bomb_count[i] += 1
-                        bombs_assigned += 1
-                    
-                    # 从牌堆移除已发的牌
-                    for card in cards:
-                        if card in self.deck:
-                            self.deck.remove(card)
-                    
-                    break
+            # 随机决定拆分方式（避免极端拆分，最小 2 张）
+            possible_splits = []
+            for s in range(2, total - 1):  # 2 ~ 6
+                if total - s >= 2:  # 两部分都至少 2 张
+                    possible_splits.append(s)
+            
+            if possible_splits:  # 始终拆分，增加多样性
+                split_size = random.choice(possible_splits)
+                
+                # 第一部分给当前玩家
+                for card in cards[:split_size]:
+                    self.players[i].hand.add(card)
+                player_bomb_count[i] += 1
+                bombs_assigned += 1
+                
+                # 剩余部分给另一个炸弹最少且手牌最少的玩家
+                other_candidates = [j for j in range(self.num_players) if player_bomb_count[j] == min(player_bomb_count)]
+                other_idx = min(other_candidates, key=lambda x: player_existing_cards[x])
+                if other_idx == i:
+                    other_idx = (i + 1) % self.num_players
+                
+                for card in cards[split_size:]:
+                    self.players[other_idx].hand.add(card)
+                player_bomb_count[other_idx] += 1
+                bombs_assigned += 1
+            elif total >= 4:
+                # 全部给一个玩家
+                for card in cards:
+                    self.players[i].hand.add(card)
+                player_bomb_count[i] += 1
+                bombs_assigned += 1
+            
+            # 从牌堆移除已发的牌
+            for card in cards:
+                if card in self.deck:
+                    self.deck.remove(card)
         
         print(f"✅ 炸弹分配完成：共分配 {bombs_assigned} 个炸弹")
         print(f"   每人炸弹数：{player_bomb_count}")
@@ -640,7 +712,7 @@ class ShuangkouDealer:
             dist[i % num_players] += 1
         return dist
     
-    def deal(self, min_bombs_per_player: int = 2, bomb_size_range=None, jokers_per_player=None, verbose: bool = True) -> List[Player]:
+    def deal(self, min_bombs_per_player: int = 2, bomb_size_range=None, jokers_per_player=None, min_chains_per_player: int = 0, verbose: bool = True) -> List[Player]:
         """
         完整发牌流程
         
@@ -648,6 +720,7 @@ class ShuangkouDealer:
             min_bombs_per_player: 每人最少炸弹数
             bomb_size_range: 炸弹大小范围 [min, max]
             jokers_per_player: 每人王数
+            min_chains_per_player: 每人最少连炸组数（0=跳过）
             verbose: 是否输出详细信息
         """
         print("=" * 60)
@@ -657,13 +730,19 @@ class ShuangkouDealer:
         # 1. 初始化玩家
         self.initialize_players()
         
-        # 2. 优先发炸弹 + 分配八王
-        self.deal_bombs_first(min_bombs_per_player, bomb_size_range=bomb_size_range, jokers_per_player=jokers_per_player)
+        # 2. 优先发连炸（如果配置了）
+        chain_dealt = False
+        if min_chains_per_player > 0:
+            self.deal_chain_bombs(min_chains_per_player)
+            chain_dealt = True
         
-        # 3. 发完剩余牌
+        # 3. 优先发炸弹 + 分配八王
+        self.deal_bombs_first(min_bombs_per_player, bomb_size_range=bomb_size_range, jokers_per_player=jokers_per_player, chain_bombs_already_dealt=chain_dealt)
+        
+        # 4. 发完剩余牌
         self.deal_remaining_cards()
         
-        # 4. 输出结果
+        # 5. 输出结果
         if verbose:
             print("\n" + "=" * 60)
             print("📊 发牌结果")
