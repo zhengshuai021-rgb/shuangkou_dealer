@@ -254,16 +254,122 @@ class Hand:
 
     def calc_contribution_score(self) -> int:
         """
-        计算贡献分：只有5线及以上炸弹才有贡献分。
-        贡献分倍率：5线=1, 6线=2, 7线=4, 8线=8... = 2^(线数-5)
-        4线炸弹无贡献分。
+        计算贡献分：按炸弹的"线数"计算，5线及以上才有贡献分。
+        线数 = 2^(线数-5)
+        
+        线数计算规则：
+        1. 单个炸弹：线数 = 炸弹张数（如 5张=5线）
+        2. 连炸（3+个点数相连的炸弹）：线数 = 最小炸弹张数 + 连环数
+           - 4张×3连环 = 7线，4张×4连环 = 8线，5张×3连环 = 8线...
+        3. 王炸（3+张王）：线数 = 王数 + 3（3王=6线，4王=7线...）
+        
+        关键：4线炸弹单独无贡献分，但组成连炸后线数提升可能有贡献分。
         """
         bombs = self.find_bombs()
+        if not bombs:
+            return 0
+        
         score = 0
-        for b in bombs:
-            if b.size >= 5:
-                score += 2 ** (b.size - 5)
+        
+        # 分离王炸和普通炸弹
+        joker_bombs = [b for b in bombs if b.rank in ['👑', '🃏']]
+        normal_bombs = [b for b in bombs if b.rank not in ['👑', '🃏']]
+        
+        # 王炸贡献分
+        for jb in joker_bombs:
+            line = jb.size + 3  # 3王=6线，4王=7线...
+            if line >= 5:
+                score += 2 ** (line - 5)
+        
+        # 普通炸弹：检测连炸（点数相连的炸弹组）
+        if not normal_bombs:
+            return score
+        
+        # 获取炸弹的 rank 索引
+        rank_indices = sorted([CARD_RANKS.index(b.rank) for b in normal_bombs])
+        
+        # 检测最大连续组（相邻索引差=1）
+        groups = []
+        current_group = [rank_indices[0]]
+        for i in range(1, len(rank_indices)):
+            if rank_indices[i] == rank_indices[i-1] + 1:
+                current_group.append(rank_indices[i])
+            else:
+                groups.append(current_group)
+                current_group = [rank_indices[i]]
+        groups.append(current_group)
+        
+        # 计算每个组的贡献分
+        for group in groups:
+            if len(group) >= 3:
+                # 连炸：线数 = 组内最小炸弹张数 + 连环数
+                min_size = min(b.size for b in normal_bombs if CARD_RANKS.index(b.rank) in group)
+                line = min_size + len(group)  # 连炸线数公式
+                if line >= 5:
+                    score += 2 ** (line - 5)
+            else:
+                # 非连炸，单个炸弹计算
+                for idx in group:
+                    b_size = next(b.size for b in normal_bombs if CARD_RANKS.index(b.rank) == idx)
+                    if b_size >= 5:
+                        score += 2 ** (b_size - 5)
+        
         return score
+
+    def get_contribution_detail(self) -> dict:
+        """返回贡献分明细"""
+        bombs = self.find_bombs()
+        if not bombs:
+            return {'chain_score': 0, 'single_score': 0, 'chains': [], 'singles': []}
+        
+        joker_bombs = [b for b in bombs if b.rank in ['👑', '🃏']]
+        normal_bombs = [b for b in bombs if b.rank not in ['👑', '🃏']]
+        
+        chain_score = 0
+        single_score = 0
+        chains_info = []
+        singles_info = []
+        
+        for jb in joker_bombs:
+            line = jb.size + 3
+            if line >= 5:
+                s = 2 ** (line - 5)
+                chain_score += s
+                chains_info.append(f"{jb.rank}x{jb.size}={line}线({s}分)")
+        
+        if not normal_bombs:
+            return {'chain_score': chain_score, 'single_score': single_score, 'chains': chains_info, 'singles': singles_info}
+        
+        rank_indices = sorted([CARD_RANKS.index(b.rank) for b in normal_bombs])
+        groups = []
+        current_group = [rank_indices[0]]
+        for i in range(1, len(rank_indices)):
+            if rank_indices[i] == rank_indices[i-1] + 1:
+                current_group.append(rank_indices[i])
+            else:
+                groups.append(current_group)
+                current_group = [rank_indices[i]]
+        groups.append(current_group)
+        
+        for group in groups:
+            if len(group) >= 3:
+                min_size = min(b.size for b in normal_bombs if CARD_RANKS.index(b.rank) in group)
+                line = min_size + len(group)
+                if line >= 5:
+                    s = 2 ** (line - 5)
+                    chain_score += s
+                    ranks_str = '+'.join([CARD_RANKS[idx] for idx in group])
+                    chains_info.append(f"[{ranks_str}]连炸={line}线({s}分)")
+            else:
+                for idx in group:
+                    b_size = next(b.size for b in normal_bombs if CARD_RANKS.index(b.rank) == idx)
+                    if b_size >= 5:
+                        s = 2 ** (b_size - 5)
+                        single_score += s
+                        rank_name = CARD_RANKS[idx]
+                        singles_info.append(f"{rank_name}x{b_size}={b_size}线({s}分)")
+        
+        return {'chain_score': chain_score, 'single_score': single_score, 'chains': chains_info, 'singles': singles_info}
 
     def total_cards(self) -> int:
         return len(self.cards)

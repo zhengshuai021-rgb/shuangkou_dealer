@@ -111,15 +111,16 @@ class ExcelExporter:
         # 计算统计数据
         stats = {
             '炸弹总数': [],
-            '4 张炸弹': [],
-            '5 张炸弹': [],
-            '6 张 + 炸弹': [],
             '万能牌数': [],
             '顺子数量': [],
             '对子数量': [],
             '三条数量': [],
             '贡献分': [],
+            '连炸贡献分': [],
+            '单炸贡献分': [],
         }
+        for line in range(4, 17):
+            stats[f'{line}线'] = []
         
         for result in results:
             for i in range(4):
@@ -131,14 +132,60 @@ class ExcelExporter:
                 score = result['players'][i].get('contribution_score', 0)
                 
                 stats['炸弹总数'].append(len(bombs))
-                stats['4 张炸弹'].append(sum(1 for b in bombs if b['size'] == 4))
-                stats['5 张炸弹'].append(sum(1 for b in bombs if b['size'] == 5))
-                stats['6 张 + 炸弹'].append(sum(1 for b in bombs if b['size'] >= 6))
                 stats['万能牌数'].append(jokers)
+                # 计算线数分布
+                line_counts = {}
+                for line in range(4, 17):
+                    line_counts[line] = 0
+                
+                # 区分王炸和普通炸弹
+                joker_bombs = [b for b in bombs if b['rank'] in ['👑', '🃏']]
+                normal_bombs = [b for b in bombs if b['rank'] not in ['👑', '🃏']]
+                
+                # 王炸线数 = 王数 + 3
+                for jb in joker_bombs:
+                    line = jb['size'] + 3
+                    if 4 <= line <= 16:
+                        line_counts[line] += 1
+                
+                # 普通炸弹检测连炸
+                if normal_bombs:
+                    CARD_RANKS = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2']
+                    rank_indices = sorted([CARD_RANKS.index(b['rank']) for b in normal_bombs if b['rank'] in CARD_RANKS])
+                    groups = []
+                    if rank_indices:
+                        current = [rank_indices[0]]
+                        for j in range(1, len(rank_indices)):
+                            if rank_indices[j] == rank_indices[j-1] + 1:
+                                current.append(rank_indices[j])
+                            else:
+                                groups.append(current)
+                                current = [rank_indices[j]]
+                        groups.append(current)
+                    
+                    for group in groups:
+                        if len(group) >= 3:
+                            # 连炸线数 = 最小炸弹张数 + 连环数
+                            min_size = min(b['size'] for b in normal_bombs if CARD_RANKS.index(b['rank']) in group)
+                            line = min_size + len(group)
+                            if 4 <= line <= 16:
+                                line_counts[line] += 1
+                        else:
+                            # 单个炸弹
+                            for idx in group:
+                                b_size = next(b['size'] for b in normal_bombs if CARD_RANKS.index(b['rank']) == idx)
+                                if 4 <= b_size <= 16:
+                                    line_counts[b_size] += 1
+                
+                for line in range(4, 17):
+                    stats[f'{line}线'].append(line_counts[line])
                 stats['顺子数量'].append(sequences)
                 stats['对子数量'].append(pairs)
                 stats['三条数量'].append(triplets)
                 stats['贡献分'].append(score)
+                detail = result['players'][i].get('contribution_detail', {})
+                stats['连炸贡献分'].append(detail.get('chain_score', 0))
+                stats['单炸贡献分'].append(detail.get('single_score', 0))
         
         # 写入统计数据
         row = 4
@@ -199,35 +246,63 @@ class ExcelExporter:
             cell.alignment = StyleConfig.CENTER_ALIGN
             cell.border = StyleConfig.THIN_BORDER
         
-        # 统计炸弹大小分布
-        bomb_size_counter = Counter()
+        # 统计炸弹线数分布（考虑连炸）
+        CARD_RANKS = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2']
+        line_counter = {}
+        for line in range(4, 17):
+            line_counter[line] = 0
+        
         for result in results:
             for player in result['players']:
-                for bomb in player['bombs']:
-                    bomb_size_counter[bomb['size']] += 1
+                bombs = player['bombs']
+                joker_bombs = [b for b in bombs if b['rank'] in ['👑', '🃏']]
+                normal_bombs = [b for b in bombs if b['rank'] not in ['👑', '🃏']]
+                
+                for jb in joker_bombs:
+                    line = jb['size'] + 3
+                    if 4 <= line <= 16:
+                        line_counter[line] += 1
+                
+                if normal_bombs:
+                    rank_indices = sorted([CARD_RANKS.index(b['rank']) for b in normal_bombs if b['rank'] in CARD_RANKS])
+                    groups = []
+                    if rank_indices:
+                        current = [rank_indices[0]]
+                        for j in range(1, len(rank_indices)):
+                            if rank_indices[j] == rank_indices[j-1] + 1:
+                                current.append(rank_indices[j])
+                            else:
+                                groups.append(current)
+                                current = [rank_indices[j]]
+                        groups.append(current)
+                    
+                    for group in groups:
+                        if len(group) >= 3:
+                            min_size = min(b['size'] for b in normal_bombs if CARD_RANKS.index(b['rank']) in group)
+                            line = min_size + len(group)
+                            if 4 <= line <= 16:
+                                line_counter[line] += 1
+                        else:
+                            for idx in group:
+                                b_size = next(b['size'] for b in normal_bombs if CARD_RANKS.index(b['rank']) == idx)
+                                if 4 <= b_size <= 16:
+                                    line_counter[b_size] += 1
         
-        total_bombs = sum(bomb_size_counter.values())
+        total_bombs = sum(line_counter.values())
+        desc_map = {4: '普通炸弹 (无贡献分)', 5: '5线 (×2)', 6: '6线 (×4)'}
+        for line in range(7, 17):
+            desc_map[line] = f'{line}线 (×{2**(line-4)})'
         
-        # 写入数据
         row = 3
-        for size in sorted(bomb_size_counter.keys()):
-            count = bomb_size_counter[size]
+        for line in range(4, 17):
+            count = line_counter[line]
+            if count == 0:
+                continue
             percentage = count / total_bombs * 100 if total_bombs > 0 else 0
             per_game = count / len(results)
+            desc = desc_map.get(line, '')
             
-            # 说明
-            if size == 4:
-                desc = '普通炸弹'
-            elif size == 5:
-                desc = '5 张炸弹 (×2)'
-            elif size == 6:
-                desc = '6 张炸弹 (×4)'
-            elif size >= 7:
-                desc = f'{size}张炸弹 (×{2**(size-4)})'
-            else:
-                desc = ''
-            
-            ws.append([f'{size}张', count, f'{percentage:.2f}%', f'{per_game:.2f}', desc])
+            ws.append([f'{line}线', count, f'{percentage:.2f}%', f'{per_game:.2f}', desc])
             
             # 设置样式
             for col in range(1, 6):
@@ -405,15 +480,16 @@ class ExcelExporter:
         # 计算统计数据
         stats = {
             '炸弹总数': [],
-            '4 张炸弹': [],
-            '5 张炸弹': [],
-            '6 张 + 炸弹': [],
             '万能牌数': [],
             '顺子数量': [],
             '对子数量': [],
             '三条数量': [],
             '贡献分': [],
+            '连炸贡献分': [],
+            '单炸贡献分': [],
         }
+        for line in range(4, 17):
+            stats[f'{line}线'] = []
         
         for result in results:
             for i in range(4):
@@ -425,18 +501,67 @@ class ExcelExporter:
                 score = result['players'][i].get('contribution_score', 0)
                 
                 stats['炸弹总数'].append(len(bombs))
-                stats['4 张炸弹'].append(sum(1 for b in bombs if b['size'] == 4))
-                stats['5 张炸弹'].append(sum(1 for b in bombs if b['size'] == 5))
-                stats['6 张 + 炸弹'].append(sum(1 for b in bombs if b['size'] >= 6))
                 stats['万能牌数'].append(jokers)
+                # 计算线数分布
+                line_counts = {}
+                for line in range(4, 17):
+                    line_counts[line] = 0
+                
+                # 区分王炸和普通炸弹
+                joker_bombs = [b for b in bombs if b['rank'] in ['👑', '🃏']]
+                normal_bombs = [b for b in bombs if b['rank'] not in ['👑', '🃏']]
+                
+                # 王炸线数 = 王数 + 3
+                for jb in joker_bombs:
+                    line = jb['size'] + 3
+                    if 4 <= line <= 16:
+                        line_counts[line] += 1
+                
+                # 普通炸弹检测连炸
+                if normal_bombs:
+                    CARD_RANKS = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2']
+                    rank_indices = sorted([CARD_RANKS.index(b['rank']) for b in normal_bombs if b['rank'] in CARD_RANKS])
+                    groups = []
+                    if rank_indices:
+                        current = [rank_indices[0]]
+                        for j in range(1, len(rank_indices)):
+                            if rank_indices[j] == rank_indices[j-1] + 1:
+                                current.append(rank_indices[j])
+                            else:
+                                groups.append(current)
+                                current = [rank_indices[j]]
+                        groups.append(current)
+                    
+                    for group in groups:
+                        if len(group) >= 3:
+                            # 连炸线数 = 最小炸弹张数 + 连环数
+                            min_size = min(b['size'] for b in normal_bombs if CARD_RANKS.index(b['rank']) in group)
+                            line = min_size + len(group)
+                            if 4 <= line <= 16:
+                                line_counts[line] += 1
+                        else:
+                            # 单个炸弹
+                            for idx in group:
+                                b_size = next(b['size'] for b in normal_bombs if CARD_RANKS.index(b['rank']) == idx)
+                                if 4 <= b_size <= 16:
+                                    line_counts[b_size] += 1
+                
+                for line in range(4, 17):
+                    stats[f'{line}线'].append(line_counts[line])
                 stats['顺子数量'].append(sequences)
                 stats['对子数量'].append(pairs)
                 stats['三条数量'].append(triplets)
                 stats['贡献分'].append(score)
+                detail = result['players'][i].get('contribution_detail', {})
+                stats['连炸贡献分'].append(detail.get('chain_score', 0))
+                stats['单炸贡献分'].append(detail.get('single_score', 0))
         
-        # 写入统计数据
+        # 写入统计数据（跳过空值）
         row += 1
         for stat_name, values in stats.items():
+            # 跳过总和为0的统计
+            if sum(values) == 0:
+                continue
             player_values = [values[i*4:(i+1)*4] for i in range(len(results))]
             
             # 每个玩家的平均值
@@ -468,7 +593,7 @@ class ExcelExporter:
         row += 2
         ws.merge_cells(f'A{row}:H{row}')
         section_title = ws[f'A{row}']
-        section_title.value = '📈 炸弹大小分布'
+        section_title.value = '📈 炸弹线数分布'
         section_title.font = Font(name='微软雅黑', size=12, bold=True, color='1F4E79')
         section_title.alignment = StyleConfig.LEFT_ALIGN
         
@@ -485,35 +610,72 @@ class ExcelExporter:
             cell.alignment = StyleConfig.CENTER_ALIGN
             cell.border = StyleConfig.THIN_BORDER
         
-        # 统计炸弹大小分布
-        bomb_size_counter = Counter()
+        # 统计炸弹线数分布（考虑连炸）
+        CARD_RANKS = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2']
+        line_counter = {}
+        for line in range(4, 17):
+            line_counter[line] = 0
+        
         for result in results:
             for player in result['players']:
-                for bomb in player['bombs']:
-                    bomb_size_counter[bomb['size']] += 1
+                bombs = player['bombs']
+                joker_bombs = [b for b in bombs if b['rank'] in ['👑', '🃏']]
+                normal_bombs = [b for b in bombs if b['rank'] not in ['👑', '🃏']]
+                
+                # 王炸线数
+                for jb in joker_bombs:
+                    line = jb['size'] + 3
+                    if 4 <= line <= 16:
+                        line_counter[line] += 1
+                
+                # 普通炸弹：检测连炸
+                if normal_bombs:
+                    rank_indices = sorted([CARD_RANKS.index(b['rank']) for b in normal_bombs if b['rank'] in CARD_RANKS])
+                    groups = []
+                    if rank_indices:
+                        current = [rank_indices[0]]
+                        for j in range(1, len(rank_indices)):
+                            if rank_indices[j] == rank_indices[j-1] + 1:
+                                current.append(rank_indices[j])
+                            else:
+                                groups.append(current)
+                                current = [rank_indices[j]]
+                        groups.append(current)
+                    
+                    for group in groups:
+                        if len(group) >= 3:
+                            min_size = min(b['size'] for b in normal_bombs if CARD_RANKS.index(b['rank']) in group)
+                            line = min_size + len(group)
+                            if 4 <= line <= 16:
+                                line_counter[line] += 1
+                        else:
+                            for idx in group:
+                                b_size = next(b['size'] for b in normal_bombs if CARD_RANKS.index(b['rank']) == idx)
+                                if 4 <= b_size <= 16:
+                                    line_counter[b_size] += 1
         
-        total_bombs = sum(bomb_size_counter.values())
+        total_bombs = sum(line_counter.values())
         
-        # 写入数据
+        # 说明文字
+        desc_map = {
+            4: '普通炸弹 (无贡献分)',
+            5: '5线 (×2)',
+            6: '6线 (×4)',
+        }
+        for line in range(7, 17):
+            desc_map[line] = f'{line}线 (×{2**(line-4)})'
+        
+        # 写入数据（只显示有值的线数）
         row += 1
-        for size in sorted(bomb_size_counter.keys()):
-            count = bomb_size_counter[size]
+        for line in range(4, 17):
+            count = line_counter[line]
+            if count == 0:
+                continue
             percentage = count / total_bombs * 100 if total_bombs > 0 else 0
             per_game = count / len(results)
+            desc = desc_map.get(line, '')
             
-            # 说明
-            if size == 4:
-                desc = '普通炸弹'
-            elif size == 5:
-                desc = '5 张炸弹 (×2)'
-            elif size == 6:
-                desc = '6 张炸弹 (×4)'
-            elif size >= 7:
-                desc = f'{size}张炸弹 (×{2**(size-4)})'
-            else:
-                desc = ''
-            
-            ws.cell(row=row, column=1).value = f'{size}张'
+            ws.cell(row=row, column=1).value = f'{line}线'
             ws.cell(row=row, column=2).value = count
             ws.cell(row=row, column=3).value = f'{percentage:.2f}%'
             ws.cell(row=row, column=4).value = round(per_game, 2)
@@ -697,7 +859,8 @@ class BatchSimulator:
                 'sequences': player.hand.count_sequences(),
                 'pairs': player.hand.count_pairs(),
                 'triplets': player.hand.count_triplets(),
-                'contribution_score': player.hand.calc_contribution_score()
+                'contribution_score': player.hand.calc_contribution_score(),
+                'contribution_detail': player.hand.get_contribution_detail()
             }
             result['players'].append(player_data)
         
