@@ -4,59 +4,77 @@
 
 ```mermaid
 flowchart TD
-    Start(["开始发牌"]) --> InitPlayers["1. 初始化 4 名玩家\n队伍 0: 玩家 1、3\n队伍 1: 玩家 2、4"]
+    Start(["开始发牌"]) --> InitPlayers["1. 初始化 4 名玩家 28 张/人"]
 
-    InitPlayers --> InitDeck["2. 创建牌堆\n2 副牌 × 52 张 = 104 张\n👑 大王 × 4\n🃏 小王 × 4\n━━━━━━━━━━━━━\n总计 112 张"]
+    InitPlayers --> InitDeck["2. 创建牌堆 112 张 2副x52 + 8王"]
 
-    InitDeck --> GroupCards["3. 按点数分组\n13 种点数（3-A-2），每种 8 张\n分离八王 8 张"]
+    InitDeck --> GroupCards["3. 按点数分组 13种点数各8张 分离8王"]
 
-    GroupCards --> BombLoop["4. 循环分配炸弹\n策略：炸弹最少的玩家优先"]
+    GroupCards --> ParseConfig["解析配置 bomb_size_range min~max min_bombs"]
 
-    BombLoop --> MinCheck{"所有玩家炸弹数 ≥ MinBombs?"}
+    ParseConfig --> BombLoop["4. 循环遍历炸弹候选 3~2 共13种"]
 
-    MinCheck -->|否| FindMin["找当前炸弹最少的玩家"]
-    FindMin --> DealBomb{"该点数炸弹是 8 张?"}
-    DealBomb -->|是，拆分| SplitBomb["拆成两个 4 张炸弹\n玩家 i 得前 4 张\n玩家 i+1 得后 4 张"]
-    DealBomb -->|否| SingleBomb["发一个 4 张炸弹给该玩家"]
-    SplitBomb --> RemoveBomb["从牌堆移除已发牌"]
-    SingleBomb --> RemoveBomb
-    RemoveBomb --> BombLoop
+    BombLoop --> StopCheck{"炸弹最少玩家 >= min_bombs+2?"}
 
-    MinCheck -->|是| JokerParse["5. 解析万能牌配置"]
+    StopCheck -->|是| JokerStep
+    StopCheck -->|否| FindMin["找炸弹最少的玩家 i"]
 
-    JokerParse --> JokerType{"jokers_per_player 类型?"}
-    JokerType -->|int 固定值| Fixed["每人固定数量"]
-    JokerType -->|范围 min~max| Range["范围随机分配"]
-    JokerType -->|null| Default["默认每人 2 张"]
+    FindMin --> SplitCalc["计算拆分方案 2~6张 两部分都>=2"]
 
-    Fixed --> JokerCheck
-    Default --> JokerCheck
+    SplitCalc --> AlwaysSplit{"可拆分?"}
 
-    Range --> JokerCheck{"范围是否合法?\nmin × 4 ≤ 8 ≤ max × 4"}
-    JokerCheck -->|否| Fallback["回退：每人 2 张"]
-    JokerCheck -->|是| RandomTry["随机尝试 100 次\n每人 rand(min, max)\n总和 = 8?"]
-    RandomTry -->|成功| UseDist["采用该分配方案"]
-    RandomTry -->|失败| Greedy["贪心构造\n先每人分 min 张\n剩余逐个 +1 直到 8 张"]
+    AlwaysSplit -->|是 始终拆分| PickSize["随机选拆分点 split_size"]
+    PickSize --> DealFirst["第一部分 split_size张 -> 玩家 i"]
+    DealFirst --> FindOther["找另一炸弹最少玩家 j"]
+    FindOther --> SameIdx{"i == j?"}
+    SameIdx -->|否| DealSecond["剩余 -> 玩家 j"]
+    SameIdx -->|是| DealNext["剩余 -> 玩家 i+1 取模"]
+    DealSecond --> RemoveCards
+    DealNext --> RemoveCards
+
+    AlwaysSplit -->|否| AllOne["全部8张 -> 玩家 i"]
+    AllOne --> RemoveCards["从牌堆移除已发牌"]
+
+    RemoveCards --> BombLoop
+
+    JokerStep["5. 解析万能牌配置"] --> JokerType{"jokers_per_player 类型?"}
+    JokerType -->|int| Fixed["每人固定数量"]
+    JokerType -->|范围| Range["范围随机分配"]
+    JokerType -->|null| Default["默认每人2张"]
+
+    Fixed --> JokerOk
+    Default --> JokerOk
+
+    Range --> JokerCheck{"范围合法? min*4<=8<=max*4"}
+    JokerCheck -->|否| Fallback["回退 每人2张"]
+    JokerCheck -->|是| RandomTry["随机100次 每人rand min~max 和=8?"]
+    RandomTry -->|成功| UseDist["采用该方案"]
+    RandomTry -->|失败| Greedy["贪心 先每人min 剩余+1到8"]
     Fallback --> UseDist
     Greedy --> UseDist
 
-    UseDist --> ShuffleJoker["打乱八王顺序\n👑 🃏 混合洗牌"]
-    ShuffleJoker --> DealJoker["按方案发给玩家\n例：[1, 3, 2, 2]"]
+    UseDist --> JokerOk["打乱八王 按方案分配"]
 
-    DealJoker --> RemCards["6. 发剩余牌"]
-    RemCards --> ShuffleRem["剩余牌堆洗牌"]
-    ShuffleRem --> CalcNeed["计算每人还需牌数\n目标：每人 28 张"]
-    CalcNeed --> DealRound["轮流发牌\n直到每人满 28 张"]
+    JokerOk --> RemCards["6. 发剩余牌 洗牌后轮流发到28张"]
 
-    DealRound --> Result["7. 发牌完成\n每人 28 张，共 112 张"]
+    RemCards --> Validate["7. 校验有效炸弹 含万能牌补充"]
+
+    Validate --> BombOK{"每人有效炸弹 >= min_bombs?"}
+    BombOK -->|是| Result["发牌完成 每人28张"]
+    BombOK -->|否| Warning["显示警告 实际使用补充逻辑"]
+
+    Warning --> Result
+
     Result --> End(["结束"])
 
     style Start fill:#e1f5fe
     style End fill:#c8e6c9
     style BombLoop fill:#fff3e0
+    style AlwaysSplit fill:#fff3e0
     style JokerCheck fill:#f3e5f5
     style RandomTry fill:#f3e5f5
     style Greedy fill:#f3e5f5
+    style Validate fill:#e8f5e9
 ```
 
 ---
@@ -66,25 +84,38 @@ flowchart TD
 ### 1. 牌堆组成
 | 类型 | 数量 | 说明 |
 |------|------|------|
-| 普通牌 | 104 张 | 2 副牌 × 52 张（13 点数 × 4 花色） |
-| 大王 👑 | 4 张 | 万能牌/癞子 |
-| 小王 🃏 | 4 张 | 万能牌/癞子 |
-| **总计** | **112 张** | 4 人 × 28 张 |
+| 普通牌 | 104 张 | 2 副牌 x 52 张（13 点数 x 4 花色） |
+| 大王 | 4 张 | 万能牌/癞子 |
+| 小王 | 4 张 | 万能牌/癞子 |
+| **总计** | **112 张** | 4 人 x 28 张 |
 
-### 2. 炸弹分配策略
-**目标**：每人至少 `MinBombs` 个炸弹
+### 2. 炸弹分配策略（核心逻辑）
 
-**规则**：
-- 遍历 13 种点数（从小到大：3 → 4 → ... → A → 2）
-- 每次找当前炸弹最少的玩家
-- 分配方式：
-  - **8 张炸弹**：拆成两个 4 张，分给相邻两个玩家
-  - **4 张炸弹**：直接给一个玩家
-- 当所有玩家炸弹数都 ≥ MinBombs 时停止
+**配置项**：`bomb_size_range` 默认 [4, 4]，当前配置 [4, 6]
 
-### 3. 八王分配策略（核心改动）
+**循环规则**：
+- 遍历 13 种点数（3 -> 4 -> ... -> A -> 2），每种 8 张
+- 找当前炸弹数最少的玩家 i
+- **终止条件**：当最少玩家的炸弹数 >= min_bombs + 2 时停止（保留一些炸弹在牌堆）
 
-**配置项**：`jokers_per_player`
+**拆分逻辑**（始终拆分，增加多样性）：
+| 步骤 | 说明 |
+|------|------|
+| 1. 计算拆分方案 | 拆分点范围 2~6，确保两部分都 >= 2 张 |
+| 2. 随机选拆分点 | `split_size = random.choice(possible_splits)` |
+| 3. 第一部分 -> 玩家 i | 当前炸弹最少的玩家 |
+| 4. 剩余部分 -> 玩家 j | 另一个炸弹最少的玩家（若 i==j 则取 i+1） |
+
+**拆分效果**（1000 局统计）：
+| 炸弹大小 | 占比 |
+|---------|------|
+| 4 张 | ~57% |
+| 5 张 | ~22% |
+| 6 张 | ~21% |
+
+### 3. 八王分配策略
+
+**配置项**：`jokers_per_player` 当前配置 [0, 4]
 
 | 配置类型 | 示例 | 说明 |
 |----------|------|------|
@@ -93,25 +124,28 @@ flowchart TD
 | 默认 | `null` | 每人 2 张 |
 
 **范围分配逻辑**：
-1. **合法性检查**：`min × 4 ≤ 8 ≤ max × 4`
-   - 不合法 → 回退到每人 2 张
-2. **随机尝试**：100 次随机分配
-   - 每人随机 `randint(min, max)`
-   - 总和 = 8 → 成功
-3. **贪心构造**（随机失败时）：
-   - 先每人分 min 张
-   - 剩余牌逐个 +1 直到 8 张
+1. **合法性检查**：min x 4 <= 8 <= max x 4，不合法则回退到每人 2 张
+2. **随机尝试**：100 次随机分配，每人 rand(min, max)，总和=8 即成功
+3. **贪心构造**（随机失败时）：先每人分 min 张，剩余逐个 +1 直到 8 张
 
-**示例**（范围 [0, 4]）：
-- 可能结果：`[1, 3, 2, 2]`、`[0, 4, 2, 2]`、`[4, 0, 1, 3]` 等
+### 4. 有效炸弹校验
 
-### 4. 剩余牌分配
+**新增校验逻辑**（含万能牌补充）：
+- 统计每个玩家手牌中同点数牌的数量
+- **有效炸弹判定**：同点数牌 + 万能牌 >= 4 张，算 1 个炸弹
+- 例：玩家有 3 张 K + 1 张小王 = 1 个有效炸弹
+
+**校验结果**：
+- 每人有效炸弹 >= min_bombs -> 发牌成功
+- 不足 -> 显示警告，但继续发牌（由外层重试机制处理）
+
+### 5. 剩余牌分配
 - 剩余牌堆洗牌
 - 计算每人还需牌数（目标 28 张）
 - 轮流发牌直到每人满 28 张
 
-### 5. 最终结果
+### 6. 最终结果
 每人 28 张牌，包含：
-- 至少 MinBombs 个炸弹
+- 至少 min_bombs 个炸弹（可含万能牌补充）
 - 0~4 张万能牌（取决于配置）
 - 其余普通牌
