@@ -114,19 +114,31 @@ class ExcelExporter:
             '4 张炸弹': [],
             '5 张炸弹': [],
             '6 张 + 炸弹': [],
-            '万能牌数': []
+            '万能牌数': [],
+            '顺子数量': [],
+            '对子数量': [],
+            '三条数量': [],
+            '贡献分': [],
         }
         
         for result in results:
             for i in range(4):
                 bombs = result['players'][i]['bombs']
                 jokers = result['players'][i]['jokers']
+                sequences = result['players'][i].get('sequences', 0)
+                pairs = result['players'][i].get('pairs', 0)
+                triplets = result['players'][i].get('triplets', 0)
+                score = result['players'][i].get('contribution_score', 0)
                 
                 stats['炸弹总数'].append(len(bombs))
                 stats['4 张炸弹'].append(sum(1 for b in bombs if b['size'] == 4))
                 stats['5 张炸弹'].append(sum(1 for b in bombs if b['size'] == 5))
                 stats['6 张 + 炸弹'].append(sum(1 for b in bombs if b['size'] >= 6))
                 stats['万能牌数'].append(jokers)
+                stats['顺子数量'].append(sequences)
+                stats['对子数量'].append(pairs)
+                stats['三条数量'].append(triplets)
+                stats['贡献分'].append(score)
         
         # 写入统计数据
         row = 4
@@ -396,19 +408,31 @@ class ExcelExporter:
             '4 张炸弹': [],
             '5 张炸弹': [],
             '6 张 + 炸弹': [],
-            '万能牌数': []
+            '万能牌数': [],
+            '顺子数量': [],
+            '对子数量': [],
+            '三条数量': [],
+            '贡献分': [],
         }
         
         for result in results:
             for i in range(4):
                 bombs = result['players'][i]['bombs']
                 jokers = result['players'][i]['jokers']
+                sequences = result['players'][i].get('sequences', 0)
+                pairs = result['players'][i].get('pairs', 0)
+                triplets = result['players'][i].get('triplets', 0)
+                score = result['players'][i].get('contribution_score', 0)
                 
                 stats['炸弹总数'].append(len(bombs))
                 stats['4 张炸弹'].append(sum(1 for b in bombs if b['size'] == 4))
                 stats['5 张炸弹'].append(sum(1 for b in bombs if b['size'] == 5))
                 stats['6 张 + 炸弹'].append(sum(1 for b in bombs if b['size'] >= 6))
                 stats['万能牌数'].append(jokers)
+                stats['顺子数量'].append(sequences)
+                stats['对子数量'].append(pairs)
+                stats['三条数量'].append(triplets)
+                stats['贡献分'].append(score)
         
         # 写入统计数据
         row += 1
@@ -669,7 +693,11 @@ class BatchSimulator:
                 'effective_bombs': effective_bombs,
                 'jokers': jokers,
                 'total_cards': player.hand.total_cards(),
-                'hand_cards_str': hand_cards_str  # 完整手牌字符串
+                'hand_cards_str': hand_cards_str,  # 完整手牌字符串
+                'sequences': player.hand.count_sequences(),
+                'pairs': player.hand.count_pairs(),
+                'triplets': player.hand.count_triplets(),
+                'contribution_score': player.hand.calc_contribution_score()
             }
             result['players'].append(player_data)
         

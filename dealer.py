@@ -173,6 +173,98 @@ class Hand:
         
         return sorted(bombs, key=lambda b: b.value(), reverse=True)
     
+
+    def count_sequences(self) -> int:
+        """
+        统计顺子数量（5+张连牌，无视花色，从大到小统计）。
+        炸弹用过的牌不参与顺子统计。
+        用过的牌不重复统计。
+        """
+        counter = self.count_by_rank()
+        # 减去炸弹用过的牌（天然炸弹 >= 4 张同点数）
+        for rank in list(counter.keys()):
+            if rank not in ['👑', '🃏'] and counter[rank] >= 4:
+                counter[rank] -= counter[rank]  # 全部扣除
+        
+        rank_order = [r for r in CARD_RANKS]
+        
+        seq_count = 0
+        while True:
+            # 从大到小找第一个能组成顺子的起始位置
+            found = False
+            for start in range(len(rank_order) - 5, -1, -1):
+                can_form = True
+                for j in range(start, start + 5):
+                    if counter.get(rank_order[j], 0) <= 0:
+                        can_form = False
+                        break
+                if can_form:
+                    # 组成顺子，扣除牌
+                    for j in range(start, start + 5):
+                        counter[rank_order[j]] -= 1
+                    seq_count += 1
+                    found = True
+                    break
+            if not found:
+                break
+        
+        return seq_count
+
+    def count_pairs(self) -> int:
+        """
+        统计对子数量（2张同点数，无视花色，从大到小统计）。
+        炸弹用过的牌不能算，顺子用过的可以重复计算。
+        算过的牌不能再算。
+        """
+        counter = self.count_by_rank()
+        # 减去炸弹用过的牌
+        for rank in list(counter.keys()):
+            if rank not in ['👑', '🃏'] and counter[rank] >= 4:
+                counter[rank] -= counter[rank]
+        
+        pair_count = 0
+        for rank in reversed(CARD_RANKS):
+            if rank in ['👑', '🃏']:
+                continue
+            count = counter.get(rank, 0)
+            if count >= 2:
+                pair_count += count // 2
+        return pair_count
+
+    def count_triplets(self) -> int:
+        """
+        统计三条数量（3张同点数，无视花色，从大到小统计）。
+        炸弹用过的牌不能算，顺子和对子用过的可以重复计算。
+        算过的牌不能再算。
+        """
+        counter = self.count_by_rank()
+        # 减去炸弹用过的牌
+        for rank in list(counter.keys()):
+            if rank not in ['👑', '🃏'] and counter[rank] >= 4:
+                counter[rank] -= counter[rank]
+        
+        triplet_count = 0
+        for rank in reversed(CARD_RANKS):
+            if rank in ['👑', '🃏']:
+                continue
+            count = counter.get(rank, 0)
+            if count >= 3:
+                triplet_count += count // 3
+        return triplet_count
+
+    def calc_contribution_score(self) -> int:
+        """
+        计算贡献分：只有5线及以上炸弹才有贡献分。
+        贡献分倍率：5线=1, 6线=2, 7线=4, 8线=8... = 2^(线数-5)
+        4线炸弹无贡献分。
+        """
+        bombs = self.find_bombs()
+        score = 0
+        for b in bombs:
+            if b.size >= 5:
+                score += 2 ** (b.size - 5)
+        return score
+
     def total_cards(self) -> int:
         return len(self.cards)
     
